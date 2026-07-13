@@ -2,6 +2,10 @@
 .env
 *.env
 
+# SQLite databases
+*.db
+instance/
+
 # Python
 __pycache__/
 *.py[cod]
