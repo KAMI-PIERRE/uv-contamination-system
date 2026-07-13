@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Environment — never bake secrets into image
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# SQLite databases
+*.db
+instance/
+
+# Trained models (mounted as volume at runtime)
+models/*.pkl
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+README.md
+*.md
+
+# ESP32 source (not needed in container)
+../esp32/
