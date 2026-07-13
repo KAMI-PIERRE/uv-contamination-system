@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — UV Contamination Detection{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- ══════════════════════════════════════════ HERO STATS CARDS ══ -->
+<div class="row g-3 mb-4">
+
+  <!-- UV Raw -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardUvRaw">
+      <div class="stat-icon uv"><i class="bi bi-brightness-high"></i></div>
+      <div class="stat-value" id="statUvRaw">—</div>
+      <div class="stat-label">UV Raw</div>
+    </div>
+  </div>
+
+  <!-- UV Average -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardUvAvg">
+      <div class="stat-icon avg"><i class="bi bi-graph-up"></i></div>
+      <div class="stat-value" id="statUvAvg">—</div>
+      <div class="stat-label">Average UV</div>
+    </div>
+  </div>
+
+  <!-- UV Min -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardUvMin">
+      <div class="stat-icon min"><i class="bi bi-arrow-down-circle"></i></div>
+      <div class="stat-value" id="statUvMin">—</div>
+      <div class="stat-label">Minimum</div>
+    </div>
+  </div>
+
+  <!-- UV Max -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardUvMax">
+      <div class="stat-icon max"><i class="bi bi-arrow-up-circle"></i></div>
+      <div class="stat-value" id="statUvMax">—</div>
+      <div class="stat-label">Maximum</div>
+    </div>
+  </div>
+
+  <!-- Range -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardUvRange">
+      <div class="stat-icon range"><i class="bi bi-arrows-expand"></i></div>
+      <div class="stat-value" id="statUvRange">—</div>
+      <div class="stat-label">Range</div>
+    </div>
+  </div>
+
+  <!-- Voltage -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card animate-in" id="cardVoltage">
+      <div class="stat-icon volt"><i class="bi bi-lightning-charge"></i></div>
+      <div class="stat-value" id="statVoltage">—</div>
+      <div class="stat-label">Voltage (mV)</div>
+    </div>
+  </div>
+
+</div><!-- /row stats -->
+
+
+<!-- ════════════════════════════════════════ LIVE READING PANEL ══ -->
+<div class="row g-3 mb-4">
+
+  <!-- Live reading card -->
+  <div class="col-12 col-lg-5">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-activity text-success me-2"></i>
+        <span>Latest Reading</span>
+        <span class="ms-auto badge bg-success pulse-badge" id="liveTag">LIVE</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="live-reading-display">
+          <div class="uv-gauge-wrap">
+            <canvas id="uvGauge" width="200" height="110"></canvas>
+            <div class="gauge-value" id="gaugeValue">—</div>
+            <div class="gauge-label">UV Raw</div>
+          </div>
+        </div>
+
+        <div class="reading-meta mt-3">
+          <div class="meta-row">
+            <span class="meta-label"><i class="bi bi-cpu me-1"></i>Device</span>
+            <span class="meta-value" id="metaDevice">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label"><i class="bi bi-clock me-1"></i>Timestamp</span>
+            <span class="meta-value small" id="metaTimestamp">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label"><i class="bi bi-box me-1"></i>Surface</span>
+            <span class="meta-value" id="metaSurface">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label"><i class="bi bi-rulers me-1"></i>Distance</span>
+            <span class="meta-value" id="metaDistance">—</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Prediction card -->
+  <div class="col-12 col-lg-4">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-graph-up-arrow text-info me-2"></i>
+        <span>Prediction</span>
+      </div>
+      <div class="panel-body d-flex flex-column align-items-center justify-content-center">
+
+        <div class="prediction-circle" id="predCircle">
+          <div class="pred-label" id="predLabel">—</div>
+          <div class="pred-sub">Prediction</div>
+        </div>
+
+        <div class="confidence-bar-wrap mt-3 w-100">
+          <div class="d-flex justify-content-between mb-1">
+            <small class="text-muted">Confidence</small>
+            <small id="confValue">—</small>
+          </div>
+          <div class="progress">
+            <div class="progress-bar" id="confBar" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div class="mt-3 w-100" id="probBreakdown"></div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Mini real-time chart -->
+  <div class="col-12 col-lg-3">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-waveform text-warning me-2"></i>
+        <span>UV Trend</span>
+      </div>
+      <div class="panel-body">
+        <canvas id="realtimeChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /live panel row -->
+
+
+<!-- ════════════════════════════════════ RECENT READINGS TABLE ══ -->
+<div class="row g-3">
+  <div class="col-12">
+    <div class="panel">
+      <div class="panel-header">
+        <i class="bi bi-table text-primary me-2"></i>
+        <span>Recent Readings</span>
+        <a href="{{ url_for('dashboard.live') }}" class="ms-auto btn btn-sm btn-outline-primary">
+          View All
+        </a>
+      </div>
+      <div class="panel-body p-0">
+        <div class="table-responsive">
+          <table class="table table-dark table-hover table-sm mb-0" id="recentTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Device</th>
+                <th>UV Raw</th>
+                <th>Avg</th>
+                <th>Voltage</th>
+                <th>Surface</th>
+                <th>Label</th>
+                <th>Prediction</th>
+                <th>Confidence</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="recentTableBody">
+              <tr><td colspan="10" class="text-center text-muted py-3">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Statistics — UV Contamination Detection{% endblock %}
+{% block page_title %}Statistics{% endblock %}
+
+{% block content %}
+
+<!-- Overview stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card animate-in">
+      <div class="stat-icon uv"><i class="bi bi-database"></i></div>
+      <div class="stat-value" id="stTotal">—</div>
+      <div class="stat-label">Total Readings</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card animate-in">
+      <div class="stat-icon avg"><i class="bi bi-brightness-high"></i></div>
+      <div class="stat-value" id="stAvgUv">—</div>
+      <div class="stat-label">Average UV</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card animate-in">
+      <div class="stat-icon min"><i class="bi bi-arrow-down-circle"></i></div>
+      <div class="stat-value" id="stMinUv">—</div>
+      <div class="stat-label">Min UV</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card animate-in">
+      <div class="stat-icon max"><i class="bi bi-arrow-up-circle"></i></div>
+      <div class="stat-value" id="stMaxUv">—</div>
+      <div class="stat-label">Max UV</div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts row 1 -->
+<div class="row g-3 mb-4">
+
+  <!-- Daily readings bar chart -->
+  <div class="col-12 col-lg-8">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-bar-chart text-primary me-2"></i>
+        <span>Daily Readings — Last 30 Days</span>
+      </div>
+      <div class="panel-body">
+        <canvas id="dailyChart" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prediction distribution doughnut -->
+  <div class="col-12 col-lg-4">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-pie-chart text-info me-2"></i>
+        <span>Prediction Distribution</span>
+      </div>
+      <div class="panel-body d-flex align-items-center justify-content-center" id="predDistWrap">
+        <canvas id="predDistChart" height="210"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Charts row 2 -->
+<div class="row g-3">
+
+  <!-- Average UV per day line chart -->
+  <div class="col-12 col-lg-8">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-graph-up text-warning me-2"></i>
+        <span>Average UV Per Day — Last 30 Days</span>
+      </div>
+      <div class="panel-body">
+        <canvas id="avgUvChart" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Label distribution bars -->
+  <div class="col-12 col-lg-4">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-tags text-success me-2"></i>
+        <span>Manual Label Distribution</span>
+      </div>
+      <div class="panel-body" id="labelDistPanel">
+        <p class="text-muted small text-center">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let dailyChart    = null;
+let predDistChart = null;
+let avgUvChart    = null;
+
+async function loadStatistics() {
+  try {
+    const data = await apiFetch('/api/statistics');
+
+    // ── Overview cards ────────────────────────────────────────────────────────
+    const ov = data.overview || {};
+    document.getElementById('stTotal').textContent  = ov.total_readings ?? '—';
+    document.getElementById('stAvgUv').textContent  = ov.avg_uv ?? '—';
+    document.getElementById('stMinUv').textContent  = ov.min_uv ?? '—';
+    document.getElementById('stMaxUv').textContent  = ov.max_uv ?? '—';
+
+    // ── Daily readings bar chart ──────────────────────────────────────────────
+    const daily      = data.daily_counts || [];
+    const dailyLbls  = daily.map(d => d.date);
+    const dailyVals  = daily.map(d => d.count);
+
+    if (dailyChart) dailyChart.destroy();
+    dailyChart = new Chart(document.getElementById('dailyChart'), {
+      type: 'bar',
+      data: {
+        labels: dailyLbls,
+        datasets: [{
+          label: 'Readings',
+          data: dailyVals,
+          backgroundColor: 'rgba(99,102,241,0.75)',
+          borderColor:     'rgba(99,102,241,1)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#64748b', maxRotation: 45, maxTicksLimit: 15 },
+               grid:  { color: '#21262d' } },
+          y: { beginAtZero: true,
+               ticks: { color: '#64748b', precision: 0 },
+               grid:  { color: '#21262d' } }
+        }
+      }
+    });
+
+    // ── Prediction distribution doughnut ──────────────────────────────────────
+    const predDist   = data.prediction_distribution || {};
+    const predLabels = Object.keys(predDist);
+    const predVals   = Object.values(predDist);
+
+    if (predLabels.length) {
+      if (predDistChart) predDistChart.destroy();
+      predDistChart = new Chart(document.getElementById('predDistChart'), {
+        type: 'doughnut',
+        data: {
+          labels: predLabels,
+          datasets: [{
+            data: predVals,
+            backgroundColor: predLabels.map(l => labelColor(l)),
+            borderWidth: 2,
+            borderColor: '#1a1f2e',
+          }]
+        },
+        options: {
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#94a3b8', padding: 12, boxWidth: 12 }
+            }
+          },
+          cutout: '62%',
+        }
+      });
+    } else {
+      document.getElementById('predDistWrap').innerHTML =
+        '<p class="text-muted small text-center py-4">No predictions yet.<br>' +
+        '<a href="/training" class="small">Train the model first.</a></p>';
+    }
+
+    // ── Average UV line chart ─────────────────────────────────────────────────
+    const avgUvData = data.daily_avg_uv || [];
+    const avgLbls   = avgUvData.map(d => d.date);
+    const avgVals   = avgUvData.map(d => d.avg_uv);
+
+    if (avgUvChart) avgUvChart.destroy();
+    avgUvChart = new Chart(document.getElementById('avgUvChart'), {
+      type: 'line',
+      data: {
+        labels: avgLbls,
+        datasets: [{
+          label: 'Avg UV Raw',
+          data: avgVals,
+          borderColor:     'rgba(245,158,11,0.9)',
+          backgroundColor: 'rgba(245,158,11,0.08)',
+          fill:     true,
+          tension:  0.4,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { ticks: { color: '#64748b', maxRotation: 45, maxTicksLimit: 15 },
+               grid:  { color: '#21262d' } },
+          y: { ticks: { color: '#64748b' },
+               grid:  { color: '#21262d' } }
+        }
+      }
+    });
+
+    // ── Label distribution progress bars ──────────────────────────────────────
+    const ds        = data.dataset || {};
+    const labelDist = ds.label_distribution || {};
+    const lPanel    = document.getElementById('labelDistPanel');
+
+    if (!Object.keys(labelDist).length) {
+      lPanel.innerHTML =
+        '<p class="text-muted small text-center py-3">No labelled data yet.<br>' +
+        '<a href="/live" class="small">Label some readings.</a></p>';
+      return;
+    }
+
+    const total = Object.values(labelDist).reduce((a, b) => a + b, 0);
+    lPanel.innerHTML = Object.entries(labelDist).map(([lbl, cnt]) => {
+      const pct = total ? ((cnt / total) * 100).toFixed(1) : 0;
+      return `
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span>${labelBadge(lbl)}</span>
+            <span class="text-muted small">${cnt} &nbsp;(${pct}%)</span>
+          </div>
+          <div class="progress" style="height:6px">
+            <div class="progress-bar"
+                 style="width:${pct}%;background:${labelColor(lbl)};transition:width 0.8s ease">
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+  } catch (e) {
+    console.error('Statistics load error:', e);
+    showToast('Failed to load statistics', 'danger');
+  }
+}
+
+loadStatistics();
+</script>
+{% endblock %}

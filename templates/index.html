@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Live Readings — UV Contamination Detection{% endblock %}
+{% block page_title %}Live Readings{% endblock %}
+
+{% block content %}
+
+<div class="row g-3 mb-3">
+  <div class="col-auto">
+    <button class="btn btn-success" id="btnAutoRefresh">
+      <i class="bi bi-play-fill me-1"></i> Auto Refresh
+    </button>
+  </div>
+  <div class="col-auto">
+    <select class="form-select form-select-sm" id="filterLabel" style="min-width:140px">
+      <option value="">All Labels</option>
+      <option value="Clean">Clean</option>
+      <option value="Dirty">Dirty</option>
+      <option value="Critical">Critical</option>
+    </select>
+  </div>
+  <div class="col-auto ms-auto">
+    <span class="text-muted small" id="readingCount">— readings</span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">
+    <i class="bi bi-activity text-success me-2"></i>
+    <span>All Sensor Readings</span>
+    <span class="ms-auto text-muted small" id="lastRefreshed">—</span>
+  </div>
+  <div class="panel-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover table-sm mb-0">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Device</th>
+            <th>UV Raw</th>
+            <th>Avg</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>Range</th>
+            <th>Voltage</th>
+            <th>Surface</th>
+            <th>Dist(cm)</th>
+            <th>Label</th>
+            <th>Prediction</th>
+            <th>Conf</th>
+            <th>Timestamp</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="liveTableBody">
+          <tr><td colspan="15" class="text-center text-muted py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel-footer d-flex justify-content-between align-items-center">
+    <button class="btn btn-outline-secondary btn-sm" id="btnPrev" disabled>
+      <i class="bi bi-chevron-left"></i> Prev
+    </button>
+    <span class="text-muted small" id="pageInfo">Page 1</span>
+    <button class="btn btn-outline-secondary btn-sm" id="btnNext">
+      Next <i class="bi bi-chevron-right"></i>
+    </button>
+  </div>
+</div>
+
+<!-- Label Modal -->
+<div class="modal fade" id="labelModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content bg-dark">
+      <div class="modal-header border-secondary">
+        <h6 class="modal-title">Assign Label</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="labelReadingId">
+        <div class="mb-3">
+          <label class="form-label text-muted small">Label</label>
+          <div class="d-flex gap-2">
+            <button class="btn btn-success flex-fill label-btn" data-label="Clean">Clean</button>
+            <button class="btn btn-warning flex-fill label-btn" data-label="Dirty">Dirty</button>
+            <button class="btn btn-danger flex-fill label-btn" data-label="Critical">Critical</button>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label text-muted small">Notes (optional)</label>
+          <textarea class="form-control form-control-sm bg-dark text-white border-secondary"
+                    id="labelNotes" rows="2"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Live readings page controller ────────────────────────────────────────────
+let currentPage = 1;
+let totalPages  = 1;
+let autoRefresh = false;
+let refreshTimer = null;
+
+async function loadReadings() {
+  const label = document.getElementById('filterLabel').value;
+  const params = new URLSearchParams({ page: currentPage, per_page: 50 });
+  if (label) params.append('label', label);
+
+  try {
+    const data = await apiFetch('/api/readings?' + params.toString());
+    renderTable(data.readings);
+    totalPages = data.pages || 1;
+    document.getElementById('readingCount').textContent = `${data.total} readings`;
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+    document.getElementById('btnPrev').disabled = currentPage <= 1;
+    document.getElementById('btnNext').disabled = currentPage >= totalPages;
+    document.getElementById('lastRefreshed').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderTable(readings) {
+  const tbody = document.getElementById('liveTableBody');
+  if (!readings || !readings.length) {
+    tbody.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-4">No readings found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = readings.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td class="text-info small">${r.device_id}</td>
+      <td><strong>${r.uv_raw ?? '—'}</strong></td>
+      <td>${r.uv_average ?? '—'}</td>
+      <td>${r.uv_min ?? '—'}</td>
+      <td>${r.uv_max ?? '—'}</td>
+      <td>${r.uv_range ?? '—'}</td>
+      <td>${r.voltage_mv ?? '—'}</td>
+      <td>${r.surface_type ?? '—'}</td>
+      <td>${r.distance_cm ?? '—'}</td>
+      <td>${labelBadge(r.manual_label)}</td>
+      <td>${labelBadge(r.predicted_label)}</td>
+      <td>${r.confidence != null ? (r.confidence * 100).toFixed(1) + '%' : '—'}</td>
+      <td class="small text-muted">${formatTs(r.timestamp)}</td>
+      <td>
+        <button class="btn btn-xs btn-outline-info" onclick="openLabel(${r.id})">
+          <i class="bi bi-tag"></i>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openLabel(id) {
+  document.getElementById('labelReadingId').value = id;
+  document.getElementById('labelNotes').value = '';
+  new bootstrap.Modal(document.getElementById('labelModal')).show();
+}
+
+// Label button handlers
+document.querySelectorAll('.label-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id    = document.getElementById('labelReadingId').value;
+    const label = btn.dataset.label;
+    const notes = document.getElementById('labelNotes').value;
+    try {
+      await apiFetch(`/api/readings/${id}/label`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label, notes }),
+      });
+      bootstrap.Modal.getInstance(document.getElementById('labelModal')).hide();
+      showToast(`Labelled reading #${id} as "${label}"`, 'success');
+      loadReadings();
+    } catch(e) {
+      showToast('Error updating label', 'danger');
+    }
+  });
+});
+
+// Pagination
+document.getElementById('btnPrev').addEventListener('click', () => {
+  if (currentPage > 1) { currentPage--; loadReadings(); }
+});
+document.getElementById('btnNext').addEventListener('click', () => {
+  if (currentPage < totalPages) { currentPage++; loadReadings(); }
+});
+document.getElementById('filterLabel').addEventListener('change', () => {
+  currentPage = 1; loadReadings();
+});
+
+// Auto refresh toggle
+document.getElementById('btnAutoRefresh').addEventListener('click', function() {
+  autoRefresh = !autoRefresh;
+  this.innerHTML = autoRefresh
+    ? '<i class="bi bi-pause-fill me-1"></i> Pause'
+    : '<i class="bi bi-play-fill me-1"></i> Auto Refresh';
+  this.classList.toggle('btn-success', !autoRefresh);
+  this.classList.toggle('btn-warning', autoRefresh);
+
+  if (autoRefresh) {
+    refreshTimer = setInterval(loadReadings, 3000);
+  } else {
+    clearInterval(refreshTimer);
+  }
+});
+
+loadReadings();
+</script>
+{% endblock %}

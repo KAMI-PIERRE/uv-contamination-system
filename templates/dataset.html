@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Dataset — UV Contamination Detection{% endblock %}
+{% block page_title %}Dataset{% endblock %}
+
+{% block content %}
+
+<!-- Stats row -->
+<div class="row g-3 mb-4" id="datasetStats">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon uv"><i class="bi bi-database"></i></div>
+      <div class="stat-value" id="dsTotal">—</div>
+      <div class="stat-label">Total Readings</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon avg"><i class="bi bi-tags"></i></div>
+      <div class="stat-value" id="dsLabelled">—</div>
+      <div class="stat-label">Labelled</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon min"><i class="bi bi-question-circle"></i></div>
+      <div class="stat-value" id="dsUnlabelled">—</div>
+      <div class="stat-label">Unlabelled</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon range"><i class="bi bi-pie-chart"></i></div>
+      <div class="stat-value" id="dsClasses">—</div>
+      <div class="stat-label">Classes</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <!-- Label distribution -->
+  <div class="col-12 col-md-5">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-pie-chart text-info me-2"></i>
+        <span>Label Distribution</span>
+      </div>
+      <div class="panel-body d-flex align-items-center justify-content-center">
+        <canvas id="labelDistChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feature statistics table -->
+  <div class="col-12 col-md-7">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-table text-warning me-2"></i>
+        <span>Feature Statistics (Labelled Data)</span>
+      </div>
+      <div class="panel-body p-0">
+        <div class="table-responsive">
+          <table class="table table-dark table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Mean</th>
+                <th>Std</th>
+                <th>Min</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody id="featureStatsBody">
+              <tr><td colspan="5" class="text-center text-muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Labelled readings table -->
+<div class="panel">
+  <div class="panel-header">
+    <i class="bi bi-table text-success me-2"></i>
+    <span>Labelled Training Samples</span>
+    <a href="/api/export?type=labelled" class="ms-auto btn btn-sm btn-outline-success">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+  </div>
+  <div class="panel-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover table-sm mb-0">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Device</th>
+            <th>UV Raw</th>
+            <th>Avg</th>
+            <th>Min</th>
+            <th>Max</th>
+            <th>Voltage</th>
+            <th>Surface</th>
+            <th>Distance</th>
+            <th>Label</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody id="labelledTableBody">
+          <tr><td colspan="11" class="text-center text-muted py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel-footer d-flex justify-content-between align-items-center">
+    <button class="btn btn-outline-secondary btn-sm" id="btnDsPrev" disabled>
+      <i class="bi bi-chevron-left"></i> Prev
+    </button>
+    <span class="text-muted small" id="dsPageInfo">Page 1</span>
+    <button class="btn btn-outline-secondary btn-sm" id="btnDsNext">
+      Next <i class="bi bi-chevron-right"></i>
+    </button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let dsPage = 1;
+let dsTotalPages = 1;
+let labelDistChart = null;
+
+async function loadDatasetStats() {
+  try {
+    const data = await apiFetch('/api/statistics');
+    const ds = data.dataset || {};
+
+    document.getElementById('dsTotal').textContent      = ds.total_readings ?? '—';
+    document.getElementById('dsLabelled').textContent   = ds.labelled_readings ?? '—';
+    document.getElementById('dsUnlabelled').textContent = ds.unlabelled_readings ?? '—';
+    document.getElementById('dsClasses').textContent    = Object.keys(ds.label_distribution || {}).length;
+
+    // Label distribution doughnut chart
+    const dist = ds.label_distribution || {};
+    const labels = Object.keys(dist);
+    const values = Object.values(dist);
+    const colors = labels.map(l => labelColor(l));
+
+    if (labelDistChart) labelDistChart.destroy();
+    labelDistChart = new Chart(document.getElementById('labelDistChart'), {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#1a1f2e' }]
+      },
+      options: {
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12 } }
+        },
+        cutout: '65%',
+      }
+    });
+
+    // Feature statistics table
+    const feats = ds.feature_statistics || {};
+    const tbody = document.getElementById('featureStatsBody');
+    if (Object.keys(feats).length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No labelled data yet.</td></tr>';
+    } else {
+      tbody.innerHTML = Object.entries(feats).map(([feat, stats]) => `
+        <tr>
+          <td class="text-info">${feat}</td>
+          <td>${stats.mean}</td>
+          <td>${stats.std}</td>
+          <td>${stats.min}</td>
+          <td>${stats.max}</td>
+        </tr>
+      `).join('');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function loadLabelledReadings() {
+  try {
+    const data = await apiFetch(`/api/readings?label=Clean&per_page=50&page=${dsPage}`);
+    // Actually load all labelled - use a combined approach
+    const r2 = await apiFetch(`/api/readings?per_page=50&page=${dsPage}`);
+    // Filter those with a label client-side is inefficient; use server filter
+    renderLabelledTable(r2.readings.filter(r => r.manual_label));
+    dsTotalPages = r2.pages;
+    document.getElementById('dsPageInfo').textContent = `Page ${dsPage} of ${dsTotalPages}`;
+    document.getElementById('btnDsPrev').disabled = dsPage <= 1;
+    document.getElementById('btnDsNext').disabled = dsPage >= dsTotalPages;
+  } catch(e) { console.error(e); }
+}
+
+function renderLabelledTable(readings) {
+  const tbody = document.getElementById('labelledTableBody');
+  if (!readings || !readings.length) {
+    tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">No labelled readings on this page.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = readings.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td class="text-info small">${r.device_id}</td>
+      <td><strong>${r.uv_raw ?? '—'}</strong></td>
+      <td>${r.uv_average ?? '—'}</td>
+      <td>${r.uv_min ?? '—'}</td>
+      <td>${r.uv_max ?? '—'}</td>
+      <td>${r.voltage_mv ?? '—'}</td>
+      <td>${r.surface_type ?? '—'}</td>
+      <td>${r.distance_cm ?? '—'}</td>
+      <td>${labelBadge(r.manual_label)}</td>
+      <td class="small text-muted">${formatTs(r.timestamp)}</td>
+    </tr>
+  `).join('');
+}
+
+document.getElementById('btnDsPrev').addEventListener('click', () => {
+  if (dsPage > 1) { dsPage--; loadLabelledReadings(); }
+});
+document.getElementById('btnDsNext').addEventListener('click', () => {
+  if (dsPage < dsTotalPages) { dsPage++; loadLabelledReadings(); }
+});
+
+loadDatasetStats();
+loadLabelledReadings();
+</script>
+{% endblock %}

@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}Train Model — UV Contamination Detection{% endblock %}
+{% block page_title %}Train Model{% endblock %}
+
+{% block content %}
+
+<!-- Status Banner -->
+<div class="alert alert-info d-flex align-items-center mb-4" id="trainBanner" style="display:none!important">
+  <i class="bi bi-info-circle-fill me-2"></i>
+  <span id="trainBannerMsg">Train the model using all manually labelled readings.</span>
+</div>
+
+<!-- Train button panel -->
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6">
+    <div class="panel">
+      <div class="panel-header">
+        <i class="bi bi-cpu text-success me-2"></i>
+        <span>Training Configuration</span>
+      </div>
+      <div class="panel-body">
+        <p class="text-muted small mb-3">
+          Trains four classifiers on all labelled data, compares their performance,
+          selects the best by F1 score, and saves it to disk for automatic inference.
+        </p>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted small">Models compared</span>
+            <span class="text-info small">Random Forest · SVM · Decision Tree · Logistic Regression</span>
+          </div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted small">Selection criterion</span>
+            <span class="text-info small">Weighted F1 Score</span>
+          </div>
+          <div class="d-flex justify-content-between mb-1">
+            <span class="text-muted small">Test split</span>
+            <span class="text-info small">20%</span>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted small">Cross-validation</span>
+            <span class="text-info small">5-fold</span>
+          </div>
+        </div>
+        <button class="btn btn-success w-100 btn-lg" id="btnTrain">
+          <i class="bi bi-play-circle me-2"></i> Start Training
+        </button>
+        <!-- Progress -->
+        <div class="mt-3" id="trainProgressWrap" style="display:none">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="spinner-border spinner-border-sm text-success"></div>
+            <span class="text-muted small" id="trainProgressMsg">Initialising…</span>
+          </div>
+          <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                 id="trainProgressBar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Best model summary -->
+  <div class="col-12 col-md-6">
+    <div class="panel h-100">
+      <div class="panel-header">
+        <i class="bi bi-trophy text-warning me-2"></i>
+        <span>Best Model</span>
+      </div>
+      <div class="panel-body" id="bestModelPanel">
+        <p class="text-muted small">Train to see results.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Model comparison table -->
+<div class="panel mb-4" id="comparisonPanel" style="display:none">
+  <div class="panel-header">
+    <i class="bi bi-bar-chart text-primary me-2"></i>
+    <span>Model Comparison</span>
+  </div>
+  <div class="panel-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover table-sm mb-0">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Accuracy</th>
+            <th>Precision</th>
+            <th>Recall</th>
+            <th>F1 Score</th>
+            <th>CV F1 Mean</th>
+            <th>CV F1 Std</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="comparisonBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Confusion matrices -->
+<div class="row g-3" id="confusionRow" style="display:none">
+  <!-- filled dynamically -->
+</div>
+
+<!-- Accuracy chart -->
+<div class="panel mt-3" id="accuracyChartPanel" style="display:none">
+  <div class="panel-header">
+    <i class="bi bi-graph-up text-info me-2"></i>
+    <span>Model Accuracy Comparison</span>
+  </div>
+  <div class="panel-body">
+    <canvas id="accuracyChart" height="100"></canvas>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let accuracyChart = null;
+
+document.getElementById('btnTrain').addEventListener('click', async () => {
+  const btn      = document.getElementById('btnTrain');
+  const progWrap = document.getElementById('trainProgressWrap');
+  const progBar  = document.getElementById('trainProgressBar');
+  const progMsg  = document.getElementById('trainProgressMsg');
+
+  btn.disabled = true;
+  progWrap.style.display = 'block';
+
+  // Simulate progress steps while waiting for real response
+  const steps = [
+    [10, 'Loading dataset…'],
+    [25, 'Encoding labels…'],
+    [40, 'Training Random Forest…'],
+    [55, 'Training SVM…'],
+    [65, 'Training Decision Tree…'],
+    [75, 'Training Logistic Regression…'],
+    [88, 'Comparing models…'],
+    [95, 'Saving best model…'],
+  ];
+  let stepIdx = 0;
+  const stepTimer = setInterval(() => {
+    if (stepIdx < steps.length) {
+      const [pct, msg] = steps[stepIdx++];
+      progBar.style.width = pct + '%';
+      progMsg.textContent = msg;
+    }
+  }, 600);
+
+  try {
+    const result = await apiFetch('/api/train', { method: 'POST' });
+
+    clearInterval(stepTimer);
+    progBar.style.width = '100%';
+    progMsg.textContent = 'Training complete!';
+
+    showToast(`Best model: ${result.best_model} (F1=${(result.best_f1*100).toFixed(1)}%)`, 'success');
+    renderTrainingResults(result);
+
+    setTimeout(() => { progWrap.style.display = 'none'; }, 1500);
+  } catch(e) {
+    clearInterval(stepTimer);
+    progBar.classList.replace('bg-success', 'bg-danger');
+    progMsg.textContent = 'Training failed: ' + (e.message || 'Unknown error');
+    showToast('Training failed: ' + (e.message || ''), 'danger');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderTrainingResults(result) {
+  // ── Best model card ──────────────────────────────────────────────────────
+  const bestMetrics = result.model_results[result.best_model] || {};
+  document.getElementById('bestModelPanel').innerHTML = `
+    <div class="text-center mb-3">
+      <div class="prediction-circle clean mx-auto mb-2" style="width:80px;height:80px;">
+        <div class="pred-label" style="font-size:0.65rem">${result.best_model.split(' ')[0]}</div>
+      </div>
+      <h5 class="text-success">${result.best_model}</h5>
+      <span class="badge bg-success">Best Model</span>
+    </div>
+    <div class="row text-center g-2">
+      ${metricBox('Accuracy',  (bestMetrics.accuracy  * 100).toFixed(1) + '%')}
+      ${metricBox('Precision', (bestMetrics.precision * 100).toFixed(1) + '%')}
+      ${metricBox('Recall',    (bestMetrics.recall    * 100).toFixed(1) + '%')}
+      ${metricBox('F1 Score',  (bestMetrics.f1_score  * 100).toFixed(1) + '%')}
+    </div>
+    <p class="text-muted small mt-3 mb-0">
+      Trained on ${result.train_samples} samples · Tested on ${result.test_samples} samples ·
+      ${result.total_samples} total · Saved at <code>${result.trained_at ? result.trained_at.substring(0,19) : ''}</code>
+    </p>
+  `;
+
+  // ── Comparison table ─────────────────────────────────────────────────────
+  document.getElementById('comparisonPanel').style.display = 'block';
+  const tbody = document.getElementById('comparisonBody');
+  tbody.innerHTML = Object.entries(result.model_results).map(([name, m]) => {
+    const isBest = name === result.best_model;
+    if (m.error) {
+      return `<tr class="table-danger">
+        <td>${name}</td>
+        <td colspan="6" class="text-danger">${m.error}</td>
+        <td><span class="badge bg-danger">Failed</span></td>
+      </tr>`;
+    }
+    return `<tr class="${isBest ? 'table-success' : ''}">
+      <td><strong>${name}</strong>${isBest ? ' <i class="bi bi-trophy-fill text-warning"></i>' : ''}</td>
+      <td>${(m.accuracy  * 100).toFixed(1)}%</td>
+      <td>${(m.precision * 100).toFixed(1)}%</td>
+      <td>${(m.recall    * 100).toFixed(1)}%</td>
+      <td><strong>${(m.f1_score  * 100).toFixed(1)}%</strong></td>
+      <td>${(m.cv_f1_mean * 100).toFixed(1)}%</td>
+      <td>±${(m.cv_f1_std * 100).toFixed(1)}%</td>
+      <td><span class="badge ${isBest ? 'bg-success' : 'bg-secondary'}">
+        ${isBest ? 'Selected' : 'Evaluated'}
+      </span></td>
+    </tr>`;
+  }).join('');
+
+  // ── Confusion matrices ────────────────────────────────────────────────────
+  const confRow = document.getElementById('confusionRow');
+  confRow.style.display = 'flex';
+  confRow.innerHTML = Object.entries(result.model_results)
+    .filter(([_, m]) => !m.error && m.confusion_matrix)
+    .map(([name, m]) => `
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="small">${name}</span>
+            ${name === result.best_model ? '<span class="ms-auto badge bg-success">Best</span>' : ''}
+          </div>
+          <div class="panel-body">
+            ${renderConfusionMatrix(m.confusion_matrix, m.classes)}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+  // ── Accuracy bar chart ────────────────────────────────────────────────────
+  document.getElementById('accuracyChartPanel').style.display = 'block';
+  const names   = Object.keys(result.model_results).filter(n => !result.model_results[n].error);
+  const accVals = names.map(n => +(result.model_results[n].accuracy * 100).toFixed(1));
+  const f1Vals  = names.map(n => +(result.model_results[n].f1_score  * 100).toFixed(1));
+
+  if (accuracyChart) accuracyChart.destroy();
+  accuracyChart = new Chart(document.getElementById('accuracyChart'), {
+    type: 'bar',
+    data: {
+      labels: names,
+      datasets: [
+        { label: 'Accuracy %',  data: accVals, backgroundColor: 'rgba(99,102,241,0.8)' },
+        { label: 'F1 Score %',  data: f1Vals,  backgroundColor: 'rgba(16,185,129,0.8)' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#2d3748' } },
+        y: { min: 0, max: 100, ticks: { color: '#94a3b8' }, grid: { color: '#2d3748' } }
+      }
+    }
+  });
+}
+
+function metricBox(label, value) {
+  return `
+    <div class="col-6">
+      <div class="bg-dark rounded p-2">
+        <div class="small text-muted">${label}</div>
+        <div class="fw-bold text-white">${value}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderConfusionMatrix(matrix, classes) {
+  if (!matrix || !classes) return '<p class="text-muted small">No data</p>';
+  const maxVal = Math.max(...matrix.flat(), 1);
+  let html = '<table class="confusion-table w-100"><thead><tr><th></th>';
+  classes.forEach(c => html += `<th class="text-center small">${c}</th>`);
+  html += '</tr></thead><tbody>';
+  matrix.forEach((row, i) => {
+    html += `<tr><td class="small text-muted pe-2">${classes[i]}</td>`;
+    row.forEach((val, j) => {
+      const pct   = Math.round((val / maxVal) * 100);
+      const isDiag = i === j;
+      html += `<td class="text-center cm-cell ${isDiag ? 'cm-diag' : ''}" 
+                   style="background:rgba(${isDiag?'16,185,129':'239,68,68'},${(pct/100)*0.7})">
+                 <span class="small">${val}</span>
+               </td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+</script>
+{% endblock %}
