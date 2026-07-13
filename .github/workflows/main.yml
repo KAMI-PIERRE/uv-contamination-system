@@ -136,6 +136,7 @@ jobs:
       # Update Docker Hub repository description from README
       - name: Update Docker Hub description
         uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true        # Don't fail the build if this step errors
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
